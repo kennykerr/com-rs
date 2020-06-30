@@ -263,7 +263,12 @@ impl DesktopWindow {
         // self.orientation = winapi::um::dcommon::D2D_MATRIX_3X2_F::default();
         // let offset = SizeF(5.0, 5.0);
         unsafe {
-            HR!(self.manager.as_ref().unwrap().update(self.get_time()));
+            let time = self.get_time();
+            HR!(self
+                .manager
+                .as_ref()
+                .unwrap()
+                .update(time, std::ptr::null_mut()));
             let target = self.target.clone().unwrap();
             target.set_unit_mode(winapi::um::d2d1_1::D2D1_UNIT_MODE_PIXELS);
             let color_white = winapi::um::d2d1::D2D1_COLOR_F {
@@ -290,7 +295,7 @@ impl DesktopWindow {
             //     D2D1_COMPOSITE_MODE_SOURCE_OVER,
             // );
 
-            // m_target->SetTransform(Matrix3x2F::Identity());
+            // target.set_transform(Matrix3x2F::Identity);
 
             target.draw_image(
                 clock,
@@ -329,7 +334,33 @@ impl DesktopWindow {
         self.schedule_animation();
     }
 
-    fn schedule_animation(&mut self) {}
+    fn schedule_animation(&mut self) {
+        let class_id = com::CLSID {
+            data1: 0x4C1FC63A,
+            data2: 0x695C,
+            data3: 0x47E8,
+            data4: [0xA3, 0x39, 0x1A, 0x19, 0x4B, 0xE3, 0xD0, 0xB8],
+        };
+        self.manager = Some(com::runtime::create_instance(&class_id).unwrap());
+
+        // auto library = create_instance<IUIAnimationTransitionLibrary>(__uuidof(UIAnimationTransitionLibrary));
+        // check_bool(QueryPerformanceFrequency(&m_frequency));
+
+        // com_ptr<IUIAnimationTransition> transition;
+
+        // check_hresult(library->CreateAccelerateDecelerateTransition(
+        //     5.0,
+        //     1.0,
+        //     0.2,
+        //     0.8,
+        //     transition.put()));
+
+        // check_hresult(m_manager->CreateAnimationVariable(0.0, m_variable.put()));
+
+        // check_hresult(m_manager->ScheduleTransition(m_variable.get(),
+        //     transition.get(),
+        //     get_time()));
+    }
 }
 
 fn create_swapchain_bitmap(
@@ -818,8 +849,8 @@ pub trait IUIAnimationManager: IUnknown {
     unsafe fn a2(&self);
     unsafe fn a3(&self);
     unsafe fn a4(&self);
-    //6
-    unsafe fn update(&self, time_now: UI_ANIMATION_SECONDS) -> HRESULT;
+    unsafe fn update(&self, time_now: UI_ANIMATION_SECONDS, _ptr: *mut std::ffi::c_void)
+        -> HRESULT;
 }
 
 type UI_ANIMATION_SECONDS = f64;
