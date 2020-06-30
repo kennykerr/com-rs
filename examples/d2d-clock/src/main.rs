@@ -89,6 +89,7 @@ struct DesktopWindow {
     swap_chain: Option<ComRc<dyn IDXGISwapChain1>>,
     manager: Option<ComRc<dyn IUIAnimationManager>>,
     clock: Option<ComRc<dyn ID2D1Bitmap1>>,
+    style: Option<ComRc<dyn ID2D1StrokeStyle>>,
 }
 
 // extern "C" {
@@ -110,6 +111,7 @@ impl DesktopWindow {
             // orientation: todo!(),
             manager: None,
             clock: None,
+            style: None,
         };
         unsafe {
             wc.hCursor = winapi::um::winuser::LoadCursorW(
@@ -309,6 +311,26 @@ impl DesktopWindow {
             *time.QuadPart() as f64 / *self.frequency.QuadPart() as f64
         }
     }
+
+    fn create_device_independent_resources(&mut self) {
+        let mut style = winapi::um::d2d1_1::D2D1_STROKE_STYLE_PROPERTIES1::default();
+        style.startCap = winapi::um::d2d1::D2D1_CAP_STYLE_ROUND;
+        style.endCap = winapi::um::d2d1::D2D1_CAP_STYLE_TRIANGLE;
+
+        unsafe {
+            let mut style_obj = ComPtr::new(self.style.as_ref().unwrap().as_raw() as _);
+            HR!(self.factory.as_ref().unwrap().create_stroke_style(
+                &style,
+                std::ptr::null_mut(),
+                0,
+                &mut style_obj
+            ));
+        }
+
+        self.schedule_animation();
+    }
+
+    fn schedule_animation(&mut self) {}
 }
 
 fn create_swapchain_bitmap(
@@ -320,19 +342,17 @@ fn create_swapchain_bitmap(
         HR!(swap_chain.get_buffer(0, &IDXGISurface::IID as *const _ as _, &mut ptr,));
         let surface: ComPtr<dyn IDXGISurface> = ComPtr::new(ptr as _);
 
-        // let props = BitmapProperties1(
-        //     winapi::um::d2d1_1::D2D1_BITMAP_OPTIONS_TARGET
-        //         | winapi::um::d2d1_1::D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        //     PixelFormat(
-        //         winapi::shared::dxgiformat::DXGI_FORMAT_B8G8R8A8_UNORM,
-        //         winapi::um::dcommon::D2D1_ALPHA_MODE_IGNORE,
-        //     ),
-        // );
-        let props = &winapi::um::d2d1_1::D2D1_BITMAP_PROPERTIES1::default();
+        let mut props = winapi::um::d2d1_1::D2D1_BITMAP_PROPERTIES1::default();
+        props.pixelFormat = winapi::um::dcommon::D2D1_PIXEL_FORMAT {
+            format: winapi::shared::dxgiformat::DXGI_FORMAT_B8G8R8A8_UNORM,
+            alphaMode: winapi::um::dcommon::D2D1_ALPHA_MODE_IGNORE,
+        };
+        props.bitmapOptions = winapi::um::d2d1_1::D2D1_BITMAP_OPTIONS_TARGET
+            | winapi::um::d2d1_1::D2D1_BITMAP_OPTIONS_CANNOT_DRAW;
 
         let mut bitmap: Option<ComPtr<dyn ID2D1Bitmap1>> = None;
 
-        HR!(target.create_bitmap_from_dxgi_surface(surface, props, &mut bitmap));
+        HR!(target.create_bitmap_from_dxgi_surface(surface, &props, &mut bitmap));
         let bitmap = ComPtr::new(bitmap.unwrap().as_raw() as _);
         target.set_target(bitmap);
     }
@@ -484,7 +504,7 @@ impl Window for DesktopWindow {
         let mut dpiy: f32 = 0.0;
         unsafe {
             factory.get_desktop_dpi(&mut self.dpix, &mut dpiy);
-            // create_device_independent_resources()
+            self.create_device_independent_resources();
 
             check_bool!(winapi::um::winuser::RegisterPowerSettingNotification(
                 self.window as _,
@@ -567,6 +587,13 @@ pub trait ID2D1Factory1: ID2D1Factory {
         &self,
         dxgi_device: Option<ComPtr<dyn IDXGIDevice>>,
         d2d_device: *mut Option<ComPtr<dyn ID2D1Device>>,
+    ) -> HRESULT;
+    unsafe fn create_stroke_style(
+        &self,
+        strokeStyleProperties: *const winapi::um::d2d1_1::D2D1_STROKE_STYLE_PROPERTIES1,
+        dashes: *const FLOAT,
+        dashesCount: winapi::shared::basetsd::UINT32,
+        strokeStyle: *mut ComPtr<dyn ID2D1StrokeStyle1>,
     ) -> HRESULT;
 }
 
@@ -797,3 +824,9 @@ pub trait IUIAnimationManager: IUnknown {
 }
 
 type UI_ANIMATION_SECONDS = f64;
+
+#[com_interface("10a72a66-e91c-43f4-993f-ddf4b82b0b4a")]
+pub trait ID2D1StrokeStyle1: ID2D1StrokeStyle {}
+
+#[com_interface("2cd9069d-12e2-11dc-9fed-001143a055f9")]
+pub trait ID2D1StrokeStyle: ID2D1Resource {}
