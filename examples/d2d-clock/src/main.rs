@@ -22,7 +22,9 @@ macro_rules! HR {
 macro_rules! check_bool {
     ($bool:expr) => {
         if !$bool.to_bool() {
-            panic!("non successful action: {}", stringify!($bool));
+            #[allow(unused_unsafe)]
+            let error = unsafe { winapi::um::errhandlingapi::GetLastError() };
+            panic!("non successful action: {} - {:x}", stringify!($bool), error);
         }
     };
 }
@@ -45,7 +47,7 @@ macro_rules! primitive_bool {
         $(
             impl BoolLike for $t {
                 fn to_bool(self) -> bool {
-                    self == 0
+                    self != 0
                 }
             }
         )*
@@ -78,7 +80,7 @@ impl ClockWindow<DesktopWindow> {
 #[repr(C)]
 struct DesktopWindow {
     dpix: f32,
-    window: Option<winapi::shared::windef::HWND>,
+    window: winapi::shared::windef::HWND,
     visible: bool,
     // orientation: winapi::um::d2d1::D2D1_MATRIX_3X2_F,
     frequency: winapi::shared::ntdef::LARGE_INTEGER,
@@ -99,7 +101,7 @@ impl DesktopWindow {
 
         let mut this = Self {
             dpix,
-            window: None,
+            window: std::ptr::null_mut(),
             visible: false,
             target: None,
             factory: None,
@@ -114,12 +116,15 @@ impl DesktopWindow {
                 std::ptr::null_mut(),
                 winapi::um::winuser::IDC_ARROW,
             );
-            // wc.hInstance = reinterpret_cast<HINSTANCE>(&__ImageBase);
-            // wc.lpszClassName = L"Sample";
+            wc.hInstance = winapi::um::libloaderapi::GetModuleHandleW(std::ptr::null_mut());
+            let name = [b'h' as u16, 0u16];
+            wc.lpszClassName = &name as *const _;
             wc.style = winapi::um::winuser::CS_HREDRAW | winapi::um::winuser::CS_VREDRAW;
             wc.lpfnWndProc = Some(window_proc);
-            winapi::um::winuser::RegisterClassW(&wc as *const _);
-            let name = [0u16];
+            println!("Registering...");
+
+            check_bool!(winapi::um::winuser::RegisterClassW(&wc as *const _));
+            let name = [b'h' as u16, 0u16];
             winapi::um::winuser::CreateWindowExW(
                 0,
                 wc.lpszClassName,
@@ -134,6 +139,7 @@ impl DesktopWindow {
                 wc.hInstance,
                 &mut this as *mut _ as _,
             );
+            println!("Window created!");
         }
 
         this
@@ -152,9 +158,9 @@ impl DesktopWindow {
             }
             winapi::um::winuser::WM_PAINT => {
                 let ps = &mut winapi::um::winuser::PAINTSTRUCT::default();
-                check_bool!(winapi::um::winuser::BeginPaint(self.window(), ps as *mut _));
+                check_bool!(winapi::um::winuser::BeginPaint(self.window, ps as *mut _));
                 self.render();
-                check_bool!(!winapi::um::winuser::EndPaint(self.window(), ps as *mut _));
+                check_bool!(!winapi::um::winuser::EndPaint(self.window, ps as *mut _));
                 0
             }
             winapi::um::winuser::WM_SIZE => {
@@ -185,7 +191,7 @@ impl DesktopWindow {
 
                 if self.visible {
                     winapi::um::winuser::PostMessageW(
-                        self.window(),
+                        self.window,
                         winapi::um::winuser::WM_NULL,
                         0,
                         0,
@@ -203,7 +209,7 @@ impl DesktopWindow {
                 (*info).ptMinTrackSize.y = 200;
                 0
             }
-            _ => winapi::um::winuser::DefWindowProcW(self.window(), message, wparam, lparam),
+            _ => winapi::um::winuser::DefWindowProcW(self.window, message, wparam, lparam),
         }
     }
 
@@ -213,7 +219,7 @@ impl DesktopWindow {
                 let mut device = create_device();
                 let target = create_render_target(self.factory.as_ref().unwrap(), &mut device);
                 self.target = Some(target.clone());
-                let swap_chain = create_swapchain(&device, self.window());
+                let swap_chain = create_swapchain(&device, self.window);
                 self.swap_chain = Some(swap_chain.clone());
 
                 create_swapchain_bitmap(&swap_chain, &target);
@@ -296,9 +302,6 @@ impl DesktopWindow {
 
     fn draw_clock(&mut self) {}
 
-    fn window(&self) -> winapi::shared::windef::HWND {
-        self.window.expect("Tried to use window before it was set")
-    }
     fn get_time(&self) -> f64 {
         let mut time = winapi::shared::ntdef::LARGE_INTEGER::default();
         unsafe {
@@ -448,7 +451,7 @@ unsafe extern "system" fn window_proc(
     if winapi::um::winuser::WM_NCCREATE == message {
         let cs = lparam as *mut winapi::um::winuser::CREATESTRUCTW;
         let that = (*cs).lpCreateParams as *mut DesktopWindow;
-        (*that).window = Some(window);
+        (*that).window = window;
         winapi::um::winuser::SetWindowLongPtrW(
             window,
             winapi::um::winuser::GWLP_USERDATA,
@@ -468,7 +471,8 @@ unsafe extern "system" fn window_proc(
 
 impl Window for DesktopWindow {
     fn run(&mut self) {
-        let factory = create_factory();
+        let factory = create_factory().upgrade();
+        self.factory = Some(factory.clone());
         let mut dxgi_factory = std::ptr::null_mut();
         let _dxgi_factory = unsafe {
             HR!(winapi::shared::dxgi::CreateDXGIFactory1(
@@ -483,7 +487,7 @@ impl Window for DesktopWindow {
             // create_device_independent_resources()
 
             check_bool!(winapi::um::winuser::RegisterPowerSettingNotification(
-                self.window() as _,
+                self.window as _,
                 &winapi::um::winnt::GUID_SESSION_DISPLAY_STATUS,
                 winapi::um::winuser::DEVICE_NOTIFY_WINDOW_HANDLE,
             ))
@@ -718,7 +722,6 @@ pub trait ID3D11Device: IUnknown {}
 
 #[com_interface("54ec77fa-1377-44e6-8c32-88fd5f44c84c")]
 pub trait IDXGIDevice: IDXGIObject {
-    unsafe fn d0(&self);
     unsafe fn get_adapter(&self, adapter: *mut Option<ComPtr<dyn IDXGIAdapter>>) -> HRESULT;
     unsafe fn d2(&self);
     unsafe fn d3(&self);
