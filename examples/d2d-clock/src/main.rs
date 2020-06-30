@@ -199,40 +199,42 @@ impl DesktopWindow {
     }
 
     fn render(&mut self) {
-        if self.target.is_none() {
-            let mut device = create_device();
-            let target = create_render_target(self.factory.as_ref().unwrap(), &mut device);
-            self.target = Some(target.clone());
-            let swap_chain = create_swapchain(&device, self.window());
-            self.swap_chain = Some(swap_chain.clone());
+        let (target, swap_chain) = match self.target {
+            None => {
+                let mut device = create_device();
+                let target = create_render_target(self.factory.as_ref().unwrap(), &mut device);
+                self.target = Some(target.clone());
+                let swap_chain = create_swapchain(&device, self.window());
+                self.swap_chain = Some(swap_chain.clone());
 
-            create_swapchain_bitmap(&swap_chain, &target);
+                create_swapchain_bitmap(&swap_chain, &target);
 
-            unsafe { target.set_dpi(self.dpix, self.dpix) };
+                unsafe { target.set_dpi(self.dpix, self.dpix) };
 
-            //     create_device_resources();
-            //     create_device_size_resources();
-        }
+                //     create_device_resources();
+                //     create_device_size_resources();
+                (target, swap_chain)
+            }
+            Some(ref t) => (t.clone(), self.swap_chain.as_ref().unwrap().clone()),
+        };
 
-        // m_target->BeginDraw();
+        unsafe { target.begin_draw() };
         // draw();
-        // m_target->EndDraw();
+        let hr = unsafe {
+            target.end_draw(std::ptr::null_mut(), std::ptr::null_mut());
+            swap_chain.present(1, 0)
+        };
 
-        // auto const hr = m_swapChain->Present(1, 0);
-
-        // if (S_OK == hr)
-        // {
-        //     // Do nothing
-        // }
-        // else if (DXGI_STATUS_OCCLUDED == hr)
-        // {
-        //     check_hresult(m_dxfactory->RegisterOcclusionStatusWindow(m_window, WM_USER, &m_occlusion));
-        //     m_visible = false;
-        // }
-        // else
-        // {
-        //     release_device();
-        // }
+        match hr {
+            winapi::shared::winerror::S_OK => {}
+            winapi::shared::winerror::DXGI_STATUS_OCCLUDED => {
+                //     check_hresult(m_dxfactory->RegisterOcclusionStatusWindow(m_window, WM_USER, &m_occlusion));
+                self.visible = false;
+            }
+            _ => {
+                //     release_device();
+            }
+        };
     }
 
     fn window(&self) -> winapi::shared::windef::HWND {
@@ -572,8 +574,12 @@ pub trait ID2D1RenderTarget: ID2D1Resource {
     unsafe fn rt41(&self);
     unsafe fn rt42(&self);
     unsafe fn rt43(&self);
-    unsafe fn rt44(&self);
-    unsafe fn rt45(&self);
+    unsafe fn begin_draw(&self);
+    unsafe fn end_draw(
+        &self,
+        tag1: *mut winapi::um::d2d1::D2D1_TAG,
+        tag2: *mut winapi::um::d2d1::D2D1_TAG,
+    );
     unsafe fn rt46(&self);
     unsafe fn set_dpi(&self, dpix: f32, dpiy: f32);
     unsafe fn rt48(&self);
@@ -617,7 +623,11 @@ pub trait IDXGISwapChain1: IDXGISwapChain {}
 
 #[com_interface("310d36a0-d2e7-4c0a-aa04-6a9d23b8886a")]
 pub trait IDXGISwapChain: IDXGIDeviceSubObject {
-    unsafe fn sc0(&self);
+    unsafe fn present(
+        &self,
+        sync_interval: winapi::shared::minwindef::UINT,
+        flags: winapi::shared::minwindef::UINT,
+    ) -> HRESULT;
     unsafe fn get_buffer(
         &self,
         buffer: winapi::shared::minwindef::UINT,
