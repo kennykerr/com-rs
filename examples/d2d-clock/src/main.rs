@@ -89,7 +89,7 @@ struct DesktopWindow {
     swap_chain: Option<ComRc<dyn IDXGISwapChain1>>,
     manager: Option<ComRc<dyn IUIAnimationManager>>,
     clock: Option<ComRc<dyn ID2D1Bitmap1>>,
-    style: Option<ComRc<dyn ID2D1StrokeStyle>>,
+    style: Option<ComRc<dyn ID2D1StrokeStyle1>>,
 }
 
 // extern "C" {
@@ -318,12 +318,11 @@ impl DesktopWindow {
         style.endCap = winapi::um::d2d1::D2D1_CAP_STYLE_TRIANGLE;
 
         unsafe {
-            let mut style_obj = ComPtr::new(self.style.as_ref().unwrap().as_raw() as _);
             HR!(self.factory.as_ref().unwrap().create_stroke_style(
                 &style,
                 std::ptr::null_mut(),
                 0,
-                &mut style_obj
+                &mut self.style as *mut _ as _
             ));
         }
 
@@ -590,10 +589,10 @@ pub trait ID2D1Factory1: ID2D1Factory {
     ) -> HRESULT;
     unsafe fn create_stroke_style(
         &self,
-        strokeStyleProperties: *const winapi::um::d2d1_1::D2D1_STROKE_STYLE_PROPERTIES1,
+        stroke_style_properties: *const winapi::um::d2d1_1::D2D1_STROKE_STYLE_PROPERTIES1,
         dashes: *const FLOAT,
-        dashesCount: winapi::shared::basetsd::UINT32,
-        strokeStyle: *mut ComPtr<dyn ID2D1StrokeStyle1>,
+        dashes_count: winapi::shared::basetsd::UINT32,
+        stroke_style: *mut Option<ComPtr<dyn ID2D1StrokeStyle1>>,
     ) -> HRESULT;
 }
 
