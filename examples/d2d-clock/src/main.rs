@@ -201,14 +201,14 @@ impl DesktopWindow {
     fn render(&mut self) {
         if self.target.is_none() {
             let mut device = create_device();
-            self.target = Some(create_render_target(
-                self.factory.as_ref().unwrap(),
-                &mut device,
-            ));
-            self.swap_chain = Some(create_swapchain(&device, self.window()));
-            //     create_swapchain_bitmap(m_swapChain, m_target);
+            let target = create_render_target(self.factory.as_ref().unwrap(), &mut device);
+            self.target = Some(target.clone());
+            let swap_chain = create_swapchain(&device, self.window());
+            self.swap_chain = Some(swap_chain.clone());
 
-            //     m_target->SetDpi(m_dpi, m_dpi);
+            create_swapchain_bitmap(&swap_chain, &target);
+
+            unsafe { target.set_dpi(self.dpix, self.dpix) };
 
             //     create_device_resources();
             //     create_device_size_resources();
@@ -239,6 +239,35 @@ impl DesktopWindow {
         self.window.expect("Tried to use window before it was set")
     }
 }
+
+fn create_swapchain_bitmap(
+    swap_chain: &ComRc<dyn IDXGISwapChain1>,
+    target: &ComRc<dyn ID2D1DeviceContext>,
+) {
+    let mut ptr = std::ptr::null_mut();
+    unsafe {
+        HR!(swap_chain.get_buffer(0, &IDXGISurface::IID as *const _ as _, &mut ptr,));
+        let surface: ComPtr<dyn IDXGISurface> = ComPtr::new(ptr as _);
+
+        // let props = BitmapProperties1(
+        //     winapi::um::d2d1_1::D2D1_BITMAP_OPTIONS_TARGET
+        //         | winapi::um::d2d1_1::D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        //     PixelFormat(
+        //         winapi::shared::dxgiformat::DXGI_FORMAT_B8G8R8A8_UNORM,
+        //         winapi::um::dcommon::D2D1_ALPHA_MODE_IGNORE,
+        //     ),
+        // );
+        let props = &winapi::um::d2d1_1::D2D1_BITMAP_PROPERTIES1::default();
+
+        let mut bitmap: Option<ComPtr<dyn ID2D1Bitmap1>> = None;
+
+        HR!(target.create_bitmap_from_dxgi_surface(surface, props, &mut bitmap));
+        let bitmap = ComPtr::new(bitmap.unwrap().as_raw() as _);
+        target.set_target(bitmap);
+    }
+}
+
+extern "system" {}
 
 fn create_swapchain(
     device: &ComRc<dyn ID3D11Device>,
@@ -462,7 +491,31 @@ pub trait IDXGIFactory: IDXGIObject {
 }
 
 #[com_interface("e8f7fe7a-191c-466d-ad95-975678bda998")]
-pub trait ID2D1DeviceContext: ID2D1RenderTarget {}
+pub trait ID2D1DeviceContext: ID2D1RenderTarget {
+    unsafe fn createbitmap(&self);
+    unsafe fn createbitmapfromwicbitmap(&self);
+    unsafe fn createcolorcontext(&self);
+    unsafe fn createcolorcontextfromfilename(&self);
+    unsafe fn createcolorcontextfromwiccolorcontext(&self);
+    unsafe fn create_bitmap_from_dxgi_surface(
+        &self,
+        surface: ComPtr<dyn IDXGISurface>,
+        bitmap_properties: *const winapi::um::d2d1_1::D2D1_BITMAP_PROPERTIES1,
+        bitmap: *mut Option<ComPtr<dyn ID2D1Bitmap1>>,
+    ) -> HRESULT;
+    unsafe fn createeffect(&self);
+    unsafe fn creategradientstopcollection(&self);
+    unsafe fn createimagebrush(&self);
+    unsafe fn createbitmapbrush(&self);
+    unsafe fn createcommandlist(&self);
+    unsafe fn isdxgiformatsupported(&self);
+    unsafe fn isbufferprecisionsupported(&self);
+    unsafe fn getimagelocalbounds(&self);
+    unsafe fn getimageworldbounds(&self);
+    unsafe fn getglyphrunworldbounds(&self);
+    unsafe fn getdevice(&self);
+    unsafe fn set_target(&self, image: ComPtr<dyn ID2D1Image>);
+}
 
 #[com_interface("47dd575d-ac05-4cdd-8049-9b02cd16f44c")]
 pub trait ID2D1Device: ID2D1Resource {
@@ -474,11 +527,65 @@ pub trait ID2D1Device: ID2D1Resource {
 }
 
 #[com_interface("2cd90694-12e2-11dc-9fed-001143a055f9")]
-pub trait ID2D1RenderTarget: ID2D1Resource {}
+pub trait ID2D1RenderTarget: ID2D1Resource {
+    unsafe fn rt0(&self);
+    unsafe fn rt1(&self);
+    unsafe fn rt2(&self);
+    unsafe fn rt3(&self);
+    unsafe fn rt4(&self);
+    unsafe fn rt5(&self);
+    unsafe fn rt6(&self);
+    unsafe fn rt7(&self);
+    unsafe fn rt8(&self);
+    unsafe fn rt9(&self);
+    unsafe fn rt10(&self);
+    unsafe fn rt11(&self);
+    unsafe fn rt12(&self);
+    unsafe fn rt13(&self);
+    unsafe fn rt14(&self);
+    unsafe fn rt15(&self);
+    unsafe fn rt16(&self);
+    unsafe fn rt17(&self);
+    unsafe fn rt18(&self);
+    unsafe fn rt19(&self);
+    unsafe fn rt20(&self);
+    unsafe fn rt21(&self);
+    unsafe fn rt22(&self);
+    unsafe fn rt23(&self);
+    unsafe fn rt24(&self);
+    unsafe fn rt25(&self);
+    unsafe fn rt26(&self);
+    unsafe fn rt27(&self);
+    unsafe fn rt28(&self);
+    unsafe fn rt29(&self);
+    unsafe fn rt30(&self);
+    unsafe fn rt31(&self);
+    unsafe fn rt32(&self);
+    unsafe fn rt33(&self);
+    unsafe fn rt34(&self);
+    unsafe fn rt35(&self);
+    unsafe fn rt36(&self);
+    unsafe fn rt37(&self);
+    unsafe fn rt38(&self);
+    unsafe fn rt39(&self);
+    unsafe fn rt40(&self);
+    unsafe fn rt41(&self);
+    unsafe fn rt42(&self);
+    unsafe fn rt43(&self);
+    unsafe fn rt44(&self);
+    unsafe fn rt45(&self);
+    unsafe fn rt46(&self);
+    unsafe fn set_dpi(&self, dpix: f32, dpiy: f32);
+    unsafe fn rt48(&self);
+    unsafe fn rt49(&self);
+    unsafe fn rt50(&self);
+    unsafe fn rt51(&self);
+    unsafe fn rt52(&self);
+}
 
 #[com_interface("2cd90691-12e2-11dc-9fed-001143a055f9")]
 pub trait ID2D1Resource: IUnknown {
-    unsafe fn r1(&self);
+    unsafe fn r0(&self);
 }
 
 #[com_interface("db6f6ddb-ac77-4e88-8253-819df9bbf140")]
@@ -506,14 +613,18 @@ pub trait IDXGIObject: IUnknown {
 }
 
 #[com_interface("790a45f7-0d42-4876-983a-0a55cfe6f4aa")]
-pub trait IDXGISwapChain1: IDXGISwapChain {
-    unsafe fn s0(&self);
-    unsafe fn s1(&self);
-    unsafe fn s2(&self);
-    unsafe fn s3(&self);
-}
+pub trait IDXGISwapChain1: IDXGISwapChain {}
+
 #[com_interface("310d36a0-d2e7-4c0a-aa04-6a9d23b8886a")]
-pub trait IDXGISwapChain: IDXGIDeviceSubObject {}
+pub trait IDXGISwapChain: IDXGIDeviceSubObject {
+    unsafe fn sc0(&self);
+    unsafe fn get_buffer(
+        &self,
+        buffer: winapi::shared::minwindef::UINT,
+        riid: winapi::shared::guiddef::REFIID,
+        pp_surface: *mut *mut std::ffi::c_void,
+    ) -> HRESULT;
+}
 
 #[com_interface("3d3e0379-f9de-4d58-bb6c-18d62992f1a6")]
 pub trait IDXGIDeviceSubObject: IDXGIObject {
@@ -529,3 +640,15 @@ pub trait IDXGIAdapter: IDXGIObject {
 
 #[com_interface("ae02eedb-c735-4690-8d52-5a8dc20213aa")]
 pub trait IDXGIOutput: IDXGIObject {}
+
+#[com_interface("cafcb56c-6ac3-4889-bf47-9e23bbd260ec")]
+pub trait IDXGISurface: IDXGIDeviceSubObject {}
+
+#[com_interface("a898a84c-3873-4588-b08b-ebbf978df041")]
+pub trait ID2D1Bitmap1: ID2D1Bitmap {}
+
+#[com_interface("a2296057-ea42-4099-983b-539fb6505426")]
+pub trait ID2D1Bitmap: ID2D1Image {}
+
+#[com_interface("65019f75-8da2-497c-b32c-dfa34e48ede6")]
+pub trait ID2D1Image: ID2D1Resource {}
