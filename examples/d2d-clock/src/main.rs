@@ -80,9 +80,13 @@ struct DesktopWindow {
     dpix: f32,
     window: Option<winapi::shared::windef::HWND>,
     visible: bool,
+    // orientation: winapi::um::d2d1::D2D1_MATRIX_3X2_F,
+    frequency: winapi::shared::ntdef::LARGE_INTEGER,
     target: Option<ComRc<dyn ID2D1DeviceContext>>,
     factory: Option<ComRc<dyn ID2D1Factory1>>,
     swap_chain: Option<ComRc<dyn IDXGISwapChain1>>,
+    manager: Option<ComRc<dyn IUIAnimationManager>>,
+    clock: Option<ComRc<dyn ID2D1Bitmap1>>,
 }
 
 // extern "C" {
@@ -91,8 +95,20 @@ struct DesktopWindow {
 
 impl DesktopWindow {
     fn new(dpix: f32) -> Self {
-        // WNDCLASS wc{};
         let mut wc = winapi::um::winuser::WNDCLASSW::default();
+
+        let mut this = Self {
+            dpix,
+            window: None,
+            visible: false,
+            target: None,
+            factory: None,
+            swap_chain: None,
+            frequency: winapi::shared::ntdef::LARGE_INTEGER::default(),
+            // orientation: todo!(),
+            manager: None,
+            clock: None,
+        };
         unsafe {
             wc.hCursor = winapi::um::winuser::LoadCursorW(
                 std::ptr::null_mut(),
@@ -103,30 +119,24 @@ impl DesktopWindow {
             wc.style = winapi::um::winuser::CS_HREDRAW | winapi::um::winuser::CS_VREDRAW;
             wc.lpfnWndProc = Some(window_proc);
             winapi::um::winuser::RegisterClassW(&wc as *const _);
-            // winapi::um::winuser::CreateWindowExW(
-            //     wc.lpszClassName,
-            //     [0],
-            //     winapi::um::winuser::WS_OVERLAPPEDWINDOW | winapi::um::winuser::WS_VISIBLE,
-            //     winapi::um::winuser::CW_USEDEFAULT,
-            //     winapi::um::winuser::CW_USEDEFAULT,
-            //     winapi::um::winuser::CW_USEDEFAULT,
-            //     winapi::um::winuser::CW_USEDEFAULT,
-            //     std::ptr::null_mut(),
-            //     std::ptr::null_mut(),
-            //     wc.hInstance,
-            //     self,
-            //     0,
-            // );
+            let name = [0u16];
+            winapi::um::winuser::CreateWindowExW(
+                0,
+                wc.lpszClassName,
+                &name as *const u16,
+                winapi::um::winuser::WS_OVERLAPPEDWINDOW | winapi::um::winuser::WS_VISIBLE,
+                winapi::um::winuser::CW_USEDEFAULT,
+                winapi::um::winuser::CW_USEDEFAULT,
+                winapi::um::winuser::CW_USEDEFAULT,
+                winapi::um::winuser::CW_USEDEFAULT,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                wc.hInstance,
+                &mut this as *mut _ as _,
+            );
         }
 
-        Self {
-            dpix,
-            window: None,
-            visible: false,
-            target: None,
-            factory: None,
-            swap_chain: None,
-        }
+        this
     }
 
     unsafe fn message_handler(
@@ -148,11 +158,10 @@ impl DesktopWindow {
                 0
             }
             winapi::um::winuser::WM_SIZE => {
-                // if m_target && SIZE_MINIMIZED != wparam
-                // {
-                //     resize_swapchain_bitmap();
-                //     render();
-                // }
+                if self.target.is_some() && winapi::um::winuser::SIZE_MINIMIZED != wparam {
+                    // resize_swapchain_bitmap();
+                    self.render();
+                }
 
                 0
             }
@@ -219,7 +228,7 @@ impl DesktopWindow {
         };
 
         unsafe { target.begin_draw() };
-        // draw();
+        self.draw();
         let hr = unsafe {
             target.end_draw(std::ptr::null_mut(), std::ptr::null_mut());
             swap_chain.present(1, 0)
@@ -228,7 +237,11 @@ impl DesktopWindow {
         match hr {
             winapi::shared::winerror::S_OK => {}
             winapi::shared::winerror::DXGI_STATUS_OCCLUDED => {
-                //     check_hresult(m_dxfactory->RegisterOcclusionStatusWindow(m_window, WM_USER, &m_occlusion));
+                // HR!(self.dx_factory.register_occlusion_status_window(
+                //     self.window(),
+                //     winapi::um::winuser::WM_USER,
+                //     &self.occlusion
+                // ));
                 self.visible = false;
             }
             _ => {
@@ -237,8 +250,61 @@ impl DesktopWindow {
         };
     }
 
+    fn draw(&mut self) {
+        // TODO: identity
+        // self.orientation = winapi::um::dcommon::D2D_MATRIX_3X2_F::default();
+        // let offset = SizeF(5.0, 5.0);
+        unsafe {
+            HR!(self.manager.as_ref().unwrap().update(self.get_time()));
+            let target = self.target.clone().unwrap();
+            target.set_unit_mode(winapi::um::d2d1_1::D2D1_UNIT_MODE_PIXELS);
+            let color_white = winapi::um::d2d1::D2D1_COLOR_F {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 1.0,
+            };
+            target.clear(&color_white);
+            target.set_unit_mode(winapi::um::d2d1_1::D2D1_UNIT_MODE_DIPS);
+            let mut previous: Option<ComPtr<dyn ID2D1Image>> = None;
+            target.get_target(&mut previous);
+            let clock = self.clock.clone().unwrap();
+            let clock = ComPtr::new(clock.as_raw() as _);
+            target.set_target(clock.clone());
+            target.clear(std::ptr::null_mut());
+            self.draw_clock();
+            target.set_target(previous.unwrap());
+            // target.set_transform(Matrix3x2F::Translation(offset));
+
+            // target.draw_image(
+            //     self.shadow.get(),
+            //     D2D1_INTERPOLATION_MODE_LINEAR,
+            //     D2D1_COMPOSITE_MODE_SOURCE_OVER,
+            // );
+
+            // m_target->SetTransform(Matrix3x2F::Identity());
+
+            target.draw_image(
+                clock,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                winapi::um::d2d1_1::D2D1_INTERPOLATION_MODE::default(),
+                winapi::um::d2d1_1::D2D1_COMPOSITE_MODE::default(),
+            );
+        }
+    }
+
+    fn draw_clock(&mut self) {}
+
     fn window(&self) -> winapi::shared::windef::HWND {
         self.window.expect("Tried to use window before it was set")
+    }
+    fn get_time(&self) -> f64 {
+        let mut time = winapi::shared::ntdef::LARGE_INTEGER::default();
+        unsafe {
+            check_bool!(winapi::um::profileapi::QueryPerformanceCounter(&mut time));
+            *time.QuadPart() as f64 / *self.frequency.QuadPart() as f64
+        }
     }
 }
 
@@ -414,11 +480,48 @@ impl Window for DesktopWindow {
         let mut dpiy: f32 = 0.0;
         unsafe {
             factory.get_desktop_dpi(&mut self.dpix, &mut dpiy);
-        }
-        println!("DPI: {}x{}", self.dpix, dpiy);
-        // TODO create device independent resources: create_device_independent_resources
+            // create_device_independent_resources()
 
-        // winapi::um::winuser::RegisterPowerSettingNotification
+            check_bool!(winapi::um::winuser::RegisterPowerSettingNotification(
+                self.window() as _,
+                &winapi::um::winnt::GUID_SESSION_DISPLAY_STATUS,
+                winapi::um::winuser::DEVICE_NOTIFY_WINDOW_HANDLE,
+            ))
+        }
+        let mut message = winapi::um::winuser::MSG::default();
+        loop {
+            if self.visible {
+                self.render();
+
+                unsafe {
+                    while winapi::um::winuser::PeekMessageW(
+                        &mut message,
+                        std::ptr::null_mut(),
+                        0,
+                        0,
+                        winapi::um::winuser::PM_REMOVE,
+                    )
+                    .to_bool()
+                    {
+                        winapi::um::winuser::DispatchMessageW(&message);
+                    }
+                }
+            } else {
+                unsafe {
+                    let result =
+                        winapi::um::winuser::GetMessageW(&mut message, std::ptr::null_mut(), 0, 0);
+                    if result.to_bool() {
+                        if result != -1 {
+                            winapi::um::winuser::DispatchMessageW(&message);
+                        }
+                    }
+                }
+            }
+
+            if winapi::um::winuser::WM_QUIT == message.message {
+                break;
+            }
+        }
     }
 }
 
@@ -517,6 +620,22 @@ pub trait ID2D1DeviceContext: ID2D1RenderTarget {
     unsafe fn getglyphrunworldbounds(&self);
     unsafe fn getdevice(&self);
     unsafe fn set_target(&self, image: ComPtr<dyn ID2D1Image>);
+    unsafe fn get_target(&self, image: *mut Option<ComPtr<dyn ID2D1Image>>);
+    unsafe fn setrenderingcontrols(&self);
+    unsafe fn getrenderingcontrols(&self);
+    unsafe fn setprimitiveblend(&self);
+    unsafe fn getprimitiveblend(&self);
+    unsafe fn set_unit_mode(&self, unit_mode: winapi::um::d2d1_1::D2D1_UNIT_MODE);
+    unsafe fn getunitmode(&self);
+    unsafe fn drawglyphrun(&self);
+    unsafe fn draw_image(
+        &self,
+        image: ComPtr<dyn ID2D1Image>,
+        target_offset: *const winapi::um::d2d1::D2D1_POINT_2F,
+        image_rectangle: *const winapi::um::d2d1::D2D1_RECT_F,
+        interpolation_mode: winapi::um::d2d1_1::D2D1_INTERPOLATION_MODE,
+        composite_mode: winapi::um::d2d1_1::D2D1_COMPOSITE_MODE,
+    );
 }
 
 #[com_interface("47dd575d-ac05-4cdd-8049-9b02cd16f44c")]
@@ -573,7 +692,7 @@ pub trait ID2D1RenderTarget: ID2D1Resource {
     unsafe fn rt40(&self);
     unsafe fn rt41(&self);
     unsafe fn rt42(&self);
-    unsafe fn rt43(&self);
+    unsafe fn clear(&self, clear_color: *const winapi::um::d2d1::D2D1_COLOR_F);
     unsafe fn begin_draw(&self);
     unsafe fn end_draw(
         &self,
@@ -662,3 +781,16 @@ pub trait ID2D1Bitmap: ID2D1Image {}
 
 #[com_interface("65019f75-8da2-497c-b32c-dfa34e48ede6")]
 pub trait ID2D1Image: ID2D1Resource {}
+
+#[com_interface("9169896C-AC8D-4e7d-94E5-67FA4DC2F2E8")]
+pub trait IUIAnimationManager: IUnknown {
+    unsafe fn a0(&self);
+    unsafe fn a1(&self);
+    unsafe fn a2(&self);
+    unsafe fn a3(&self);
+    unsafe fn a4(&self);
+    //6
+    unsafe fn update(&self, time_now: UI_ANIMATION_SECONDS) -> HRESULT;
+}
+
+type UI_ANIMATION_SECONDS = f64;

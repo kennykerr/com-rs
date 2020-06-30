@@ -8,6 +8,6 @@ edition = "2018"
 
 [dependencies]
 com = { path = "../.." }
-winapi = { version  = "0.3", features = ["combaseapi", "d2d1", "impl-default", "dxgi", "winuser", "d3d11", "dxgi1_2"] }
+winapi = { version  = "0.3", features = ["combaseapi", "d2d1", "impl-default", "dxgi", "winuser", "d3d11", "dxgi1_2", "profileapi"] }
 
 [workspace]
