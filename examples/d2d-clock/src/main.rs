@@ -82,6 +82,7 @@ struct DesktopWindow {
     visible: bool,
     target: Option<ComRc<dyn ID2D1DeviceContext>>,
     factory: Option<ComRc<dyn ID2D1Factory1>>,
+    swap_chain: Option<ComRc<dyn IDXGISwapChain1>>,
 }
 
 // extern "C" {
@@ -124,6 +125,7 @@ impl DesktopWindow {
             visible: false,
             target: None,
             factory: None,
+            swap_chain: None,
         }
     }
 
@@ -203,7 +205,7 @@ impl DesktopWindow {
                 self.factory.as_ref().unwrap(),
                 &mut device,
             ));
-            //     m_swapChain = create_swapchain(device, m_window);
+            self.swap_chain = Some(create_swapchain(&device, self.window()));
             //     create_swapchain_bitmap(m_swapChain, m_target);
 
             //     m_target->SetDpi(m_dpi, m_dpi);
@@ -235,6 +237,50 @@ impl DesktopWindow {
 
     fn window(&self) -> winapi::shared::windef::HWND {
         self.window.expect("Tried to use window before it was set")
+    }
+}
+
+fn create_swapchain(
+    device: &ComRc<dyn ID3D11Device>,
+    window: winapi::shared::windef::HWND,
+) -> ComRc<dyn IDXGISwapChain1> {
+    let factory = get_dxgi_factory(device);
+
+    let mut props = winapi::shared::dxgi1_2::DXGI_SWAP_CHAIN_DESC1::default();
+    props.Format = winapi::shared::dxgiformat::DXGI_FORMAT_B8G8R8A8_UNORM;
+    props.SampleDesc.Count = 1;
+    props.BufferUsage = winapi::shared::dxgitype::DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    props.BufferCount = 2;
+    props.SwapEffect = winapi::shared::dxgi::DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+
+    let mut swap_chain: Option<ComPtr<dyn IDXGISwapChain1>> = None;
+
+    unsafe {
+        let device =
+            ComPtr::new(device.as_raw() as *mut *mut <dyn IUnknown as ComInterface>::VTable);
+        HR!(factory.create_swap_chain_for_hwnd(
+            device,
+            window,
+            &props,
+            std::ptr::null_mut(),
+            None,
+            &mut swap_chain
+        ))
+    };
+
+    swap_chain.unwrap().upgrade()
+}
+
+fn get_dxgi_factory(device: &ComRc<dyn ID3D11Device>) -> ComRc<dyn IDXGIFactory2> {
+    let dxdevice = device.get_interface::<dyn IDXGIDevice>().unwrap();
+    let mut adapter: Option<ComPtr<dyn IDXGIAdapter>> = None;
+    unsafe {
+        HR!(dxdevice.get_adapter(&mut adapter as *mut _));
+        let mut ptr = std::ptr::null_mut();
+        HR!(adapter
+            .unwrap()
+            .get_parent(&IDXGIFactory2::IID as *const _ as _, &mut ptr as *mut _));
+        ComRc::from_raw(ptr as *mut _)
     }
 }
 
@@ -387,7 +433,33 @@ pub trait ID2D1Factory1: ID2D1Factory {
 }
 
 #[com_interface("50c83a1c-e072-4c48-87b0-3630fa36a6d0")]
-pub trait IDXGIFactory2: IUnknown {}
+pub trait IDXGIFactory2: IDXGIFactory1 {
+    unsafe fn gif0(&self);
+    unsafe fn create_swap_chain_for_hwnd(
+        &self,
+        p_device: ComPtr<dyn IUnknown>,
+        hwnd: winapi::shared::windef::HWND,
+        p_desc: *const winapi::shared::dxgi1_2::DXGI_SWAP_CHAIN_DESC1,
+        p_fullscreen_desc: *const winapi::shared::dxgi1_2::DXGI_SWAP_CHAIN_FULLSCREEN_DESC,
+        p_restrict_to_output: Option<ComPtr<dyn IDXGIOutput>>,
+        pp_swapchain: *mut Option<ComPtr<dyn IDXGISwapChain1>>,
+    ) -> HRESULT;
+}
+
+#[com_interface("770aae78-f26f-4dba-a829-253c83d1b387")]
+pub trait IDXGIFactory1: IDXGIFactory {
+    unsafe fn f10(&self);
+    unsafe fn f11(&self);
+}
+
+#[com_interface("7b7166ec-21c7-44ae-b21a-c9ae321ae369")]
+pub trait IDXGIFactory: IDXGIObject {
+    unsafe fn f0(&self);
+    unsafe fn f1(&self);
+    unsafe fn f2(&self);
+    unsafe fn f3(&self);
+    unsafe fn f4(&self);
+}
 
 #[com_interface("e8f7fe7a-191c-466d-ad95-975678bda998")]
 pub trait ID2D1DeviceContext: ID2D1RenderTarget {}
@@ -415,7 +487,7 @@ pub trait ID3D11Device: IUnknown {}
 #[com_interface("54ec77fa-1377-44e6-8c32-88fd5f44c84c")]
 pub trait IDXGIDevice: IDXGIObject {
     unsafe fn d0(&self);
-    unsafe fn d1(&self);
+    unsafe fn get_adapter(&self, adapter: *mut Option<ComPtr<dyn IDXGIAdapter>>) -> HRESULT;
     unsafe fn d2(&self);
     unsafe fn d3(&self);
     unsafe fn d4(&self);
@@ -426,5 +498,34 @@ pub trait IDXGIObject: IUnknown {
     unsafe fn o0(&self);
     unsafe fn o1(&self);
     unsafe fn o2(&self);
-    unsafe fn o3(&self);
+    unsafe fn get_parent(
+        &self,
+        refid: winapi::shared::guiddef::REFIID,
+        pparent: *mut *mut std::ffi::c_void,
+    ) -> HRESULT;
 }
+
+#[com_interface("790a45f7-0d42-4876-983a-0a55cfe6f4aa")]
+pub trait IDXGISwapChain1: IDXGISwapChain {
+    unsafe fn s0(&self);
+    unsafe fn s1(&self);
+    unsafe fn s2(&self);
+    unsafe fn s3(&self);
+}
+#[com_interface("310d36a0-d2e7-4c0a-aa04-6a9d23b8886a")]
+pub trait IDXGISwapChain: IDXGIDeviceSubObject {}
+
+#[com_interface("3d3e0379-f9de-4d58-bb6c-18d62992f1a6")]
+pub trait IDXGIDeviceSubObject: IDXGIObject {
+    unsafe fn so0(&self);
+}
+
+#[com_interface("2411e7e1-12ac-4ccf-bd14-9798e8534dc0")]
+pub trait IDXGIAdapter: IDXGIObject {
+    unsafe fn a0(&self);
+    unsafe fn a1(&self);
+    unsafe fn a2(&self);
+}
+
+#[com_interface("ae02eedb-c735-4690-8d52-5a8dc20213aa")]
+pub trait IDXGIOutput: IDXGIObject {}
