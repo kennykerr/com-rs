@@ -63,7 +63,6 @@ fn main() {
     }
 
     clock.run();
-    com::runtime::deinit_apartment();
 }
 
 trait BoolLike {
